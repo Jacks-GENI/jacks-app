@@ -45,7 +45,11 @@ function JacksApp(jacks, status, buttons, sliceAms, allAms, sliceInfo,
     this.statusPollDelayMillis = 5000;
 
     this.jacks = jacks;
+    this.jacks_editor = null;
+    this.jacks_editor_visible = false;
+
     this.status = status;
+
     this.buttons = buttons;
     this.sliceAms = sliceAms;
     this.allAms = allAms;
@@ -68,7 +72,9 @@ function JacksApp(jacks, status, buttons, sliceAms, allAms, sliceInfo,
         mode: 'viewer',
         source: 'rspec',
         // This may not need to be hardcoded.
-        size: { x: 791, y: 350},
+	// size: { x: 791, y: 350},
+	size: { x: 1400, y: 350},
+	// size: 'auto',
         show: {
             menu: false,
             rspec: false,
@@ -109,6 +115,29 @@ JacksApp.prototype.debug = function(msg) {
 	console.log(msg);
 }
 
+/** 
+ * Hide the jacks app pane
+ */ 
+JacksApp.prototype.hide = function (msg) {
+    $(this.jacks).hide();
+    $(this.buttons).hide();
+    $(this.status).hide();
+}
+
+/** 
+ * Show the jacks app pane
+ */ 
+JacksApp.prototype.show = function (msg) {
+    $(this.jacks).show();
+    $(this.buttons).show();
+    $(this.status).show();
+}
+
+JacksApp.prototype.setJacksEditor = function(je) {
+    this.jacks_editor = je;
+    this.jacks_editor_visible = true;
+}
+
 /**
  * Called when Jacks is ready. 'input' and 'output' are the Jacks
  * input and output event channels.
@@ -127,6 +156,7 @@ JacksApp.prototype.jacksReady = function(input, output) {
     // Set up the function that Jacks will call when a node
     // is clicked.
     this.jacksOutput.on('click-event', this.onClickEvent, this);
+    this.jacksOutput.on('selection', this.onSelectionEvent, this);
 
     // Start with a blank topology.
     this.jacksInput.trigger('change-topology',
@@ -165,10 +195,13 @@ JacksApp.prototype.updateStatus = function(statusText) {
 };
 
 JacksApp.prototype.initButtons = function(buttonSelector) {
-    var btn = $('<button type="button">Get Manifest</button>');
     var that = this;
+
+    /*
+    var btn = $('<button type="button">Get Manifest</button>');
     btn.click(function(){ that.getSliceManifests();});
     $(buttonSelector).append(btn);
+    */
 
     btn = $('<button type="button">Renew</button>');
     btn.click(function() {
@@ -187,7 +220,7 @@ JacksApp.prototype.initButtons = function(buttonSelector) {
 	});
     $(buttonSelector).append(btn);
 
-    btn = $('<button type="button">Add</button>');
+    btn = $('<button type="button">Add Resources</button>');
     btn.click(function(){ that.addResources();});
     $(buttonSelector).append(btn);
 
@@ -197,6 +230,21 @@ JacksApp.prototype.initButtons = function(buttonSelector) {
 
     btn = $('<button type="button">Restart</button>');
     btn.click(function(){ that.handleRestart();});
+    $(buttonSelector).append(btn);
+
+    btn = $('<button type="button">EDITOR</BUTTON>');
+    btn.click(function() {
+	    //	    console.log("HIDE " + that.jacks_editor);
+	    if(that.jacks_editor != null) {
+		if (that.jacks_editor_visible) {
+		    that.jacks_editor.hide();
+		    that.jacks_editor_visible = false;
+		} else {
+		    that.jacks_editor.show();
+		    that.jacks_editor_visible = true;
+		}
+	    }
+	});
     $(buttonSelector).append(btn);
 };
 
@@ -227,6 +275,10 @@ JacksApp.prototype.getSliceManifests = function() {
     var sliceAms = this.sliceAms;
 
     if (sliceAms.length === 0) {
+	if (this.jacks_editor != null) {
+	    this.jacks_editor.show();
+	    this.hide();
+	}
 	this.updateStatus("Jacks initialized: no resources");
 	return;
     }
@@ -248,6 +300,21 @@ JacksApp.prototype.getSliceManifests = function() {
 };
 
 
+
+/**
+ * max_time is when to stop polling
+ */
+JacksApp.prototype.getManifest = function(am_id, maxTime) {
+    this.updateStatus('Polling resource manifest from '
+                      + this.amName(am_id) + '...');
+    this.output.trigger(this.MANIFEST_EVENT_TYPE,
+                        { name: this.MANIFEST_EVENT_TYPE,
+                          am_id: am_id,
+                          slice_id: this.sliceId,
+                          callback: this.input,
+                          client_data: { maxTime: maxTime }
+                        });
+};
 
 /**
  * max_time is when to stop polling
@@ -344,11 +411,15 @@ JacksApp.prototype.deleteResources = function() {
  * Ask embedding page to add resources to current slice
  */
 JacksApp.prototype.addResources = function() {
-    this.output.trigger(this.ADD_EVENT_TYPE,
-                        { name: this.ADD_EVENT_TYPE,
-                          slice_id: this.sliceId,
-                          client_data: {}
-                        });
+    if (this.jacks_editor != null) {
+	this.jacks_editor.show();
+    } else {
+	this.output.trigger(this.ADD_EVENT_TYPE,
+             { name: this.ADD_EVENT_TYPE,
+               slice_id: this.sliceId,
+                 client_data: {}
+            });
+    }
 };
 
 JacksApp.prototype.renewResources = function() {
@@ -404,18 +475,26 @@ JacksApp.prototype.onClickEvent = function(event) {
     //$('#jacksApp'+ji+' #list-'+event['client_id']).parent().addClass('expandedI');
 };
 
+JacksApp.prototype.onSelectionEvent = function(event) {
+    console.log("JA : " + event);
+}
+
+
 
 //----------------------------------------------------------------------
 // Jacks App Events from Embedding Page
 //----------------------------------------------------------------------
 
 JacksApp.prototype.onEpManifest = function(event) {
+
+    var that = this;
+
     if (event.code !== 0) {
         debug("Error retrieving manifest: " + event.output);
         return;
     }
 
-    var rspecManifest = event.value;
+   var rspecManifest = event.value;
 
     // NEEDS TO BE CHANGED
     // change-topology removes the current topology.
@@ -442,7 +521,15 @@ JacksApp.prototype.onEpManifest = function(event) {
     if (nodes.length === 0) {
 	var am_index = this.sliceAms.indexOf(am_id);
 	this.sliceAms.splice(am_index, 1);
-	this.updateStatus("No resources found at " + am_id);
+	this.updateStatus("No resources found at " + this.amName(am_id));
+
+	if(this.sliceAms.length == 0) {
+	    if(this.jacks_editor != null) {
+		this.jacks_editor.show();
+		this.hide();
+	    }
+	}
+	
 	return;
     }
 
