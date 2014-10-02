@@ -27,10 +27,13 @@
 # }}}
 #
 */
-
+ 
 function JacksEditorApp(jacks, status, buttons, sliceAms, allAms, 
 			allRspecs,
-			sliceInfo, userInfo, readyCallback) {
+			sliceInfo, userInfo, enableButtons,
+			canvasOptions, constraints,
+			readyCallback, fetchTopologyCallback,
+			modifiedTopologyCallback) {
 
     // Map from client_id to am_id
     this.client2am = {};
@@ -53,6 +56,26 @@ function JacksEditorApp(jacks, status, buttons, sliceAms, allAms,
     this.sliceAms = sliceAms;
     this.allAms = allAms;
 
+    // Turn {am_id => {name, url}} dictionary into list,
+    this.sortedAms = [];
+    for(var am_id in allAms) {
+	var entry = {
+	    am_id : am_id, 
+	    name: allAms[am_id]['name'],
+	    url : allAms[am_id]['url'],
+	    id : allAms[am_id]['urn']
+	};
+	this.sortedAms.push(entry);
+    }
+
+    // sort list
+    this.sortedAms.sort(function(am1, am2) {
+	    if (am1.name < am2.name)
+		return -1;
+	    else
+		return 1;
+	});
+
     this.allRspecs = allRspecs;
 
     this.verbose = false; // Print debug messages to console.log
@@ -70,6 +93,14 @@ function JacksEditorApp(jacks, status, buttons, sliceAms, allAms,
     this.userInfo = userInfo;
     this.username = userInfo.user_name;
 
+    if (canvasOptions == null)
+	canvasOptions = getDefaultCanvasOptions();
+    if (constraints == null)
+	constraints = getDefaultConstraints();
+
+
+    canvasOptions.aggregates = this.sortedAms;
+
     var that = this;
     var jacksInstance = new window.Jacks({
 	    mode: 'editor',
@@ -78,24 +109,18 @@ function JacksEditorApp(jacks, status, buttons, sliceAms, allAms,
 	    // size: { x: 791, y: 350},
 	    // size: { x: 1400, y: 350},
 	    size: 'auto',
-	    canvasOptions: {
-		images: [{
-			name: 'foo',
-			id: 'bar'
-		    },
-    {
-	name: 'UBUNTU12-64-STD',
-	id: 'urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU12-64-STD'
-    }]
-	    },
+	    canvasOptions: canvasOptions,
+	    constraints : constraints,
 	    nodeSelect: true,
+	    multiSite: true,
 	    root: jacks,
 	    readyCallback: function (input, output) {
-		output.on('fetch-topology', function(rspecs) {
-			that.postRspec(rspecs);
-		    });
+		output.on('fetch-topology', fetchTopologyCallback);
+		output.on('modified-topology', modifiedTopologyCallback);
 		that.jacksReady(input, output);
-		that.initButtons(that.buttons);
+		if (that.enableButtons) {
+		    that.initButtons(that.buttons);
+		}
 		// Finally, tell our client that we're ready
 		readyCallback(that, that.input, that.output);
 	    }
@@ -126,6 +151,179 @@ JacksEditorApp.prototype.UPLOAD_EVENT_TYPE = "UPLOAD";
 JacksEditorApp.prototype.debug = function(msg) {
     if(this.verbose)
 	console.log(msg);
+}
+
+function getDefaultCanvasOptions()
+{
+    var defaults = [ 
+        {
+	    name: 'VM',
+	    type: 'default-vm'
+	},
+        {
+	    name: 'Xen VM',
+	    type: 'emulab-xen',
+	    image: 'urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU12-64-STD'
+	},
+        {
+	    name: 'Raw PC',
+	    type: 'emulab-rawpc',
+	    image: 'urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU12-64-STD'
+        },
+        {
+	    name: 'Small Exogeni',
+	    type: 'm1.small'
+	},
+        {
+	    name: 'Open VSwitch',
+	    type: 'emulab-xen',
+	    image: 'urn:publicid:IDN+instageni.gpolab.bbn.com+image+emulab-ops:Ubuntu12-64-OVS',
+	    icon: 'https://www.emulab.net/protogeni/jacks-stable/images/router.svg'
+	}];
+
+  var images = [
+        {
+	    name: 'UBUNTU12-64-STD',
+	    id: 'urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU12-64-STD'
+	},
+        {
+	    name: 'OVS Image',
+	    id: 'urn:publicid:IDN+instageni.gpolab.bbn.com+image+emulab-ops:Ubuntu12-64-OVS'
+	}
+	];
+
+var types =  [
+	{
+	    name: 'Universal Default VM',
+	    id: 'default-vm'
+	},
+        {
+	    name: 'Emulab Xen VM',
+	    id: 'emulab-xen'
+	      },
+        {
+	    name: 'Emulab Raw PC',
+	    id: 'emulab-rawpc'
+	},
+        {
+	    name: 'ExoGENI Small VM',
+	    id: 'm1.small'
+	}];
+
+var hardware = [
+        {
+	    name: 'Dell d710',
+	    id: 'd710'
+	},
+        {
+	    name: 'Dell 3Ghz',
+	    id: 'pc3000'
+	},
+        {
+	    name: 'Any PC',
+	    id: 'pc',
+	}];
+
+var linkTypes = [
+        {
+	    name: 'GRE Tunnel',
+	    id: 'gre-tunnel'
+	},
+        {
+	    name: 'EGRE Tunnel',
+	    id: 'egre-tunnel'
+	},
+        {
+	    name: 'Ethernet',
+	    id: 'lan'
+	},
+        {
+	    name: 'Stitched Ethernet',
+	    id: 'stitched'
+	}];
+
+var sharedvlans = [];
+var canvas_options = { defaults: defaults,
+		       images : images,
+		       types: types,
+		       hardware : hardware,
+		       linkTypes : linkTypes,
+		       sharedvlans : sharedvlans
+		       };
+return canvas_options;
+
+}
+
+ function getDefaultConstraints() 
+{
+var constraints = [
+        {
+	    node: {
+		'hardware': ['d710', 'pc3000'],
+		'types': ['emulab-rawpc', 'emulab-xen']
+	    }
+	},
+        {
+	    node: {
+		'hardware': ['pc3000'],
+		'types': ['*']
+	    }
+	},
+        {
+	    node: {
+		'hardware': ['*'],
+		'types': ['default-vm']
+	    }
+	},
+        {
+	    node: {
+		'hardware': ['pc', 'pc3000'],
+		'images': ['urn:publicid:IDN+emulab.net+image+emulab-ops//UBUNTU12-64-STD']
+	    }
+	},
+        {
+	    node: {
+		'hardware': ['d710'],
+		'images': ['urn:publicid:IDN+instageni.gpolab.bbn.com+image+emulab-ops:Ubuntu12-64-OVS']
+	    }
+	},
+        {
+	    node: {
+		'hardware': ['*'],
+		'images': ['urn:blahblah:any']
+	    }
+	},
+        {
+	    node: {
+		'hardware': ['pc', 'd710'],
+		'types': ['m1.small']
+	    }
+	},
+        {
+	    node: {
+		'types': ['emulab-xen']
+	    },
+	    link: {
+		'linkTypes': ['egre-tunnel']
+	    },
+	    node2: {
+		'types': ['emulab-xen']
+	    }
+	},
+        {
+	    node: {
+		'types': ['emulab-rawpc']
+	    },
+	    link: {
+		'linkTypes': ['stitched'],
+	    },
+	    node2: {
+		'types': ['m1.small']
+	    }
+	}];
+
+return constraints;
+
 }
 
 JacksEditorApp.prototype.setJacksViewer = function(jv) {
@@ -272,6 +470,7 @@ JacksEditorApp.prototype.initButtons = function(buttonSelector) {
     var agg_selector = that.constructAggregateSelector(); 
     $(buttonSelector).append(agg_selector);
 
+    /*
     btn = $('<button type="button">VIEWER</BUTTON>');
     btn.click(function() {
 	    //	    console.log("HIDE " + that.jacks_viewer);
@@ -287,6 +486,7 @@ JacksEditorApp.prototype.initButtons = function(buttonSelector) {
 	    }
 	});
     $(buttonSelector).append(btn);
+    */
 
 };
 
@@ -295,13 +495,15 @@ JacksEditorApp.prototype.amName = function(am_id) {
 };
 
 JacksEditorApp.prototype.constructAggregateSelector = function() {
+    var that = this;
     var selector_text = "";
     selector_text += 
     '<select name="am_chooser" id="agg_chooser" ">\n';
-    $.each(this.allAms, function(am_id, am_info) {
-	    debug("AM = " + am_info);
-	    var am_url = am_info["url"];
-	    var am_name = am_info["name"];
+    $.each(that.sortedAms, function(am_index) {
+	    var am_entry = that.sortedAms[am_index];
+	    var am_id = am_entry.am_id;
+	    var am_url = am_entry.url;
+	    var am_name = am_entry.name;
 	    selector_text += '<option value="' + am_id + '">' + am_name + '</option>\n';
 	});
     selector_text += "</select>\n";
